@@ -66,7 +66,47 @@ KEYWORDS = [
 ]
 
 # Maximum number of pages to crawl (set to None for unlimited)
-MAX_PAGES = 1000
+MAX_PAGES = 200
+
+# Excluded paths and file types
+EXCLUDED_PATHS = [
+    '/article/',
+    '/articles/',
+    '/media/',
+    '/images/',
+    '/photos/',
+    '/videos/',
+    '/audio/',
+    '/docs/',
+    '/pdf/',
+    '/downloads/',
+    '/resources/',
+    '/files/',
+    '/attachments/'
+]
+
+EXCLUDED_FILE_TYPES = [
+    '.pdf',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+    '.ppt',
+    '.pptx',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.svg',
+    '.mp3',
+    '.mp4',
+    '.wav',
+    '.zip',
+    '.rar',
+    '.7z',
+    '.tar',
+    '.gz'
+]
 
 # Output directory for results (relative to script location)
 RESULTS_DIR = "results"

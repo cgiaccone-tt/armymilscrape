@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 import re
 import chromedriver_autoinstaller
-from config import BASE_URL, KEYWORDS, MAX_PAGES, RESULTS_DIR_ABS, SETTINGS
+from config import BASE_URL, KEYWORDS, MAX_PAGES, RESULTS_DIR_ABS, SETTINGS, EXCLUDED_PATHS, EXCLUDED_FILE_TYPES
 from backup_manager import BackupManager
 from urllib.parse import urljoin
 from urllib.parse import urlparse
@@ -370,10 +370,10 @@ class ArmyWebScraper:
         return ' '.join(text.split())
 
     def is_valid_url(self, url):
-        """Check if a URL should be crawled."""
+        """Check if URL is valid and should be processed."""
         if not url:
             return False
-        
+            
         # Parse the URL
         parsed = urlparse(url)
         
@@ -381,22 +381,18 @@ class ArmyWebScraper:
         if parsed.netloc != 'www.army.mil':
             return False
             
-        # Skip article pages (they're handled differently)
-        if '/article/' in parsed.path:
+        # Skip excluded paths
+        if any(path in parsed.path.lower() for path in EXCLUDED_PATHS):
             return False
             
-        # Skip file downloads
-        if parsed.path.lower().endswith(('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.doc', '.docx', '.ppt', '.pptx')):
+        # Skip excluded file types
+        if any(parsed.path.lower().endswith(ext) for ext in EXCLUDED_FILE_TYPES):
             return False
             
         # Skip utility pages
         excluded_patterns = [
             '/search/', 
             '/login/', 
-            '/media/', 
-            '/images/', 
-            '/resources/', 
-            '/download/', 
             '/rss/', 
             '/feeds/',
             '/contact/',
