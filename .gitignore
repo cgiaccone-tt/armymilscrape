@@ -61,6 +61,12 @@ geckodriver.log
 temp/
 output/
 cache/
+results/
+results/backups/
+army_results*.csv
+army_results*.xlsx
+*.bak
+*.gz
 
 # Chrome WebDriver
 .wdm/

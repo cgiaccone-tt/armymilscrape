@@ -1,3 +1,5 @@
+import os
+
 # Base URL for the Army website
 BASE_URL = "https://www.army.mil"
 
@@ -64,10 +66,49 @@ KEYWORDS = [
 ]
 
 # Maximum number of pages to crawl (set to None for unlimited)
-MAX_PAGES = 500
+MAX_PAGES = 1000
+
+# Output directory for results (relative to script location)
+RESULTS_DIR = "results"
+
+# Get absolute path to results directory
+RESULTS_DIR_ABS = os.path.join(os.path.dirname(os.path.abspath(__file__)), RESULTS_DIR)
 
 # Output file name for results
 OUTPUT_FILE = "army_results.csv"
 
-# Delay between page loads (in seconds)
-PAGE_LOAD_DELAY = 2
+# Scraper settings
+SETTINGS = {
+    # Browser settings
+    'NUM_BROWSERS': 4,  # Number of parallel browser instances
+    'PAGE_LOAD_TIMEOUT': 30,  # Seconds to wait for page load
+    'ELEMENT_TIMEOUT': 10,  # Seconds to wait for elements
+    'RETRY_ATTEMPTS': 3,  # Number of times to retry failed requests
+    'RETRY_DELAY': 2,  # Seconds to wait between retries
+    
+    # Rate limiting
+    'PAGE_LOAD_DELAY': 2,  # Seconds to wait between page loads
+    'SAVE_INTERVAL': 30,  # Seconds between auto-saves
+    'NO_PROGRESS_TIMEOUT': 60,  # Seconds to wait with no progress before taking action
+    
+    # Content extraction
+    'CONTEXT_CHARS': 100,  # Number of characters to capture around keyword matches
+    'MAX_CONTENT_LENGTH': 100000,  # Maximum characters to store per page
+    
+    # File handling
+    'BACKUP_FILES': True,  # Whether to keep backup files
+    'COMPRESS_BACKUPS': True,  # Whether to compress backup files
+    'MAX_BACKUPS': 5,  # Maximum number of backup files to keep
+}
+
+# File patterns for cleanup
+CLEANUP_PATTERNS = [
+    'army_results_*.csv',
+    'army_results_*.xlsx',
+    'army_results.csv',
+    'army_results.xlsx',
+    'army_results_clean.csv',
+    'army_results_alt.csv',
+    'army_results_alt.xlsx',
+    '*.bak'
+]
