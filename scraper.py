@@ -14,6 +14,9 @@ from config import *
 import signal
 import sys
 import re
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+import threading
 
 class ArmyWebScraper:
     def __init__(self):
@@ -21,17 +24,30 @@ class ArmyWebScraper:
             # Install ChromeDriver if necessary
             chromedriver_autoinstaller.install()
             
-            # Set up Chrome options
+            # Set up Chrome options for faster loading
             chrome_options = Options()
-            chrome_options.add_argument('--headless=new')  # Use new headless mode
+            chrome_options.add_argument('--headless=new')
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--window-size=1920,1080')
             
-            # Initialize Chrome WebDriver
-            self.driver = webdriver.Chrome(options=chrome_options)
-            self.wait = WebDriverWait(self.driver, 10)  # 10 second wait timeout
+            # Performance optimizations
+            chrome_options.add_argument('--disable-extensions')
+            chrome_options.add_argument('--disable-logging')
+            chrome_options.add_argument('--disable-notifications')
+            chrome_options.add_argument('--disable-default-apps')
+            chrome_options.add_argument('--dns-prefetch-disable')
+            chrome_options.page_load_strategy = 'eager'  # Don't wait for all resources
+            
+            # Initialize multiple Chrome WebDrivers for parallel processing
+            self.num_workers = 4  # Number of parallel browsers
+            self.drivers = []
+            self.waits = []
+            for _ in range(self.num_workers):
+                driver = webdriver.Chrome(options=chrome_options)
+                self.drivers.append(driver)
+                self.waits.append(WebDriverWait(driver, 5))  # Reduced timeout to 5 seconds
             
         except Exception as e:
             print(f"Error initializing Chrome WebDriver: {str(e)}")
@@ -40,6 +56,9 @@ class ArmyWebScraper:
         self.results = []
         self.visited_urls = set()
         self.running = True
+        self.url_queue = Queue()
+        self.results_lock = threading.Lock()
+        self.visited_lock = threading.Lock()
         
         # Set up signal handlers for graceful termination
         signal.signal(signal.SIGINT, self.handle_termination)
@@ -49,7 +68,8 @@ class ArmyWebScraper:
         print("\nReceived termination signal. Saving results and exiting...")
         self.running = False
         self.save_results()
-        self.driver.quit()
+        for driver in self.drivers:
+            driver.quit()
         sys.exit(0)
 
     def find_keywords_in_text(self, text):
@@ -57,83 +77,63 @@ class ArmyWebScraper:
         text_lower = text.lower()
         
         for keyword in KEYWORDS:
-            # For single words, check if they exist as whole words
             if ' ' not in keyword:
                 pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
                 if re.search(pattern, text_lower):
                     found_keywords.append(keyword)
-            # For phrases, check if the exact phrase exists
             else:
                 if keyword.lower() in text_lower:
                     found_keywords.append(keyword)
         return found_keywords
 
     def clean_text(self, text):
-        # Remove extra whitespace and normalize line endings
         return ' '.join(text.split())
 
     def is_valid_url(self, url):
-        # Parse the URL
         parsed = urlparse(url)
-        
-        # Check if it's an army.mil URL
         if not parsed.netloc.endswith('army.mil'):
             return False
-            
-        # Exclude /article/ directory
         if '/article/' in parsed.path:
             return False
-            
-        # Exclude certain file types
         if parsed.path.lower().endswith(('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.doc', '.docx', '.ppt', '.pptx')):
             return False
-            
-        # Exclude certain patterns
-        excluded_patterns = [
-            '/search/',
-            '/login/',
-            '/media/',
-            '/images/',
-            '/resources/',
-            '/download/',
-            '/rss/',
-            '/feeds/',
-        ]
+        excluded_patterns = ['/search/', '/login/', '/media/', '/images/', '/resources/', '/download/', '/rss/', '/feeds/']
         return not any(pattern in parsed.path.lower() for pattern in excluded_patterns)
 
-    def wait_for_content(self):
+    def wait_for_content(self, driver, wait):
         try:
-            # Wait for main content to load
-            main_content = self.wait.until(
-                EC.presence_of_element_located((By.TAG_NAME, "main"))
-            ) or self.wait.until(
-                EC.presence_of_element_located((By.TAG_NAME, "article"))
-            ) or self.wait.until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            # Wait for either main content elements with reduced timeout
+            content = wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "main, article, body"))
             )
-            return main_content
+            return content
         except TimeoutException:
             return None
 
-    def process_page(self, url):
-        if url in self.visited_urls:
-            return []
+    def process_page(self, url, driver_idx=0):
+        with self.visited_lock:
+            if url in self.visited_urls:
+                return []
+            self.visited_urls.add(url)
         
-        self.visited_urls.add(url)
         try:
-            # Load the page with Selenium
-            self.driver.get(url)
+            driver = self.drivers[driver_idx]
+            wait = self.waits[driver_idx]
             
-            # Wait for dynamic content to load
-            main_content = self.wait_for_content()
+            # Load the page with performance optimization
+            driver.execute_cdp_cmd('Network.setBypassServiceWorker', {'bypass': True})
+            driver.get(url)
+            
+            # Wait for content with reduced timeout
+            main_content = self.wait_for_content(driver, wait)
             if not main_content:
                 return []
             
-            # Get the page source after JavaScript execution
-            page_source = self.driver.page_source
+            # Get the page source
+            page_source = driver.page_source
             soup = BeautifulSoup(page_source, 'html.parser')
             
-            # Extract main content
+            # Extract content
             content = soup.find('main') or soup.find('article') or soup.find('body')
             if not content:
                 return []
@@ -144,82 +144,101 @@ class ArmyWebScraper:
             if found_keywords:
                 title = soup.find('title')
                 title_text = title.get_text() if title else "No title"
-                
-                # Clean and store the full text content
                 clean_content = self.clean_text(text_content)
                 
-                return [{
-                    'url': url,
-                    'title': title_text,
-                    'keywords_found': ','.join(found_keywords),
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'page_content': clean_content
-                }]
+                with self.results_lock:
+                    self.results.append({
+                        'url': url,
+                        'title': title_text,
+                        'keywords_found': ','.join(found_keywords),
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'page_content': clean_content
+                    })
+                    print(f"Found keywords on: {url}")
             
-        except Exception as e:
-            print(f"Error processing {url}: {str(e)}")
-        
-        return []
-
-    def get_links(self, url):
-        links = set()
-        try:
-            # Load the page with Selenium
-            self.driver.get(url)
-            
-            # Wait for dynamic content to load
-            self.wait_for_content()
-            
-            # Get all links after JavaScript execution
-            elements = self.driver.find_elements(By.TAG_NAME, "a")
+            # Get new links
+            elements = driver.find_elements(By.TAG_NAME, "a")
+            new_links = set()
             for element in elements:
                 try:
                     href = element.get_attribute('href')
                     if href:
                         full_url = urljoin(url, href)
                         if self.is_valid_url(full_url):
-                            links.add(full_url)
+                            new_links.add(full_url)
                 except:
                     continue
-                    
+            
+            return list(new_links)
+            
         except Exception as e:
-            print(f"Error getting links from {url}: {str(e)}")
-        return links
+            print(f"Error processing {url}: {str(e)}")
+        return []
+
+    def worker(self, worker_id):
+        while self.running:
+            try:
+                url = self.url_queue.get(timeout=1)
+                new_links = self.process_page(url, worker_id)
+                
+                # Add new links to queue
+                for link in new_links:
+                    with self.visited_lock:
+                        if link not in self.visited_urls:
+                            self.url_queue.put(link)
+                
+                self.url_queue.task_done()
+                
+            except Exception:
+                continue
 
     def crawl(self):
-        pages_crawled = 0
-        urls_to_visit = {BASE_URL}
+        # Initialize with base URL
+        self.url_queue.put(BASE_URL)
+        
+        # Create worker threads
+        workers = []
+        for i in range(self.num_workers):
+            t = threading.Thread(target=self.worker, args=(i,))
+            t.daemon = True
+            t.start()
+            workers.append(t)
+        
         last_save = time.time()
-
+        last_count = 0
+        
         try:
-            while urls_to_visit and self.running and (MAX_PAGES is None or pages_crawled < MAX_PAGES):
-                current_url = urls_to_visit.pop()
-                print(f"Processing: {current_url}")
+            while self.running:
+                # Check progress
+                current_count = len(self.visited_urls)
+                if current_count != last_count:
+                    print(f"Processed {current_count} pages. Found {len(self.results)} relevant pages.")
+                    last_count = current_count
                 
-                # Process the current page
-                new_results = self.process_page(current_url)
-                if new_results:
-                    self.results.extend(new_results)
-                    print(f"Found keywords on: {current_url}")
-                
-                # Get new links
-                new_links = self.get_links(current_url)
-                urls_to_visit.update(new_links - self.visited_urls)
-                
-                pages_crawled += 1
-                print(f"Processed {pages_crawled} pages. Found {len(self.results)} relevant pages.")
-                
-                # Save results periodically (every 5 minutes)
-                if time.time() - last_save >= 300:  # 300 seconds = 5 minutes
+                # Save results periodically
+                if time.time() - last_save >= 300:
                     self.save_results()
                     last_save = time.time()
                 
-                # Add a small delay to be respectful to the server
-                time.sleep(PAGE_LOAD_DELAY)
-
+                # Check if we've hit the page limit
+                if MAX_PAGES and current_count >= MAX_PAGES:
+                    print(f"Reached maximum page limit of {MAX_PAGES}")
+                    break
+                
+                # Small delay to prevent CPU overuse
+                time.sleep(0.1)
+                
+                # Check if we're done
+                if self.url_queue.empty() and all(not t.is_alive() for t in workers):
+                    break
+                
         finally:
+            self.running = False
+            for t in workers:
+                t.join(timeout=1)
             self.save_results()
-            self.driver.quit()
+            for driver in self.drivers:
+                driver.quit()
 
     def save_results(self):
         if self.results:

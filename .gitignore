@@ -19,6 +19,11 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+.coverage
+coverage.xml
+*.cover
+htmlcov/
 
 # Virtual Environment
 .env
@@ -26,12 +31,22 @@ wheels/
 env/
 venv/
 ENV/
+pyvenv.cfg
+pip-log.txt
+pip-delete-this-directory.txt
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
+.*.sw[a-p]
+.project
+.pydevproject
+.settings
+*.sublime-workspace
+*.sublime-project
 
 # Project specific
 army_results.csv
@@ -39,13 +54,32 @@ army_results.csv
 chromedriver.log
 debug.log
 geckodriver.log
+*.csv
+*.xlsx
+*.xls
+*.json
+temp/
+output/
+cache/
 
 # Chrome WebDriver
 .wdm/
 .chrome/
 .selenium/
+*.crx
+*.pem
+*.crx3
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
 
 # OS specific
 .DS_Store
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
+*.lnk
+._*
+.Spotlight-V100
+.Trashes
