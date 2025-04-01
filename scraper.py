@@ -313,19 +313,39 @@ class ArmyWebScraper:
         chrome_options.add_argument('--disable-application-cache')
         chrome_options.add_argument('--disable-offline-load-stale-cache')
         
+        # Session handling improvements
+        chrome_options.add_argument('--disable-session-crashed-bubble')
+        chrome_options.add_argument('--disable-infobars')
+        chrome_options.add_argument('--enable-precise-memory-info')
+        
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.page_load_strategy = 'eager'  # Don't wait for all resources
         
-        # Initialize Chrome WebDriver with error handling
-        try:
-            driver = webdriver.Chrome(options=chrome_options)
-            # Set page load timeout
-            driver.set_page_load_timeout(SETTINGS['PAGE_LOAD_TIMEOUT'])
-            return driver
-        except Exception as e:
-            print(f"Error initializing Chrome WebDriver: {str(e)}")
-            raise
+        # Initialize Chrome WebDriver with error handling and retry
+        max_retries = 3
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                driver = webdriver.Chrome(options=chrome_options)
+                driver.set_page_load_timeout(SETTINGS['PAGE_LOAD_TIMEOUT'])
+                # Test the session
+                driver.get('about:blank')
+                return driver
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                print(f"Error initializing Chrome WebDriver (attempt {retry_count}/{max_retries}): {str(e)}")
+                try:
+                    driver.quit()
+                except:
+                    pass
+                time.sleep(2 ** retry_count)  # Exponential backoff
+        
+        print(f"Failed to initialize Chrome WebDriver after {max_retries} attempts")
+        raise last_error
 
     def _process_page(self):
         try:
