@@ -4,6 +4,33 @@ import shutil
 import fnmatch
 from datetime import datetime, timedelta
 from config import RESULTS_DIR_ABS
+import sys
+
+# Force unbuffered output
+if sys.stdout.isatty():
+    sys.stdout.reconfigure(encoding='utf-8')
+else:
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+
+def clean_text_for_display(text):
+    """Clean text for terminal display."""
+    if not isinstance(text, str):
+        return str(text)
+    # Replace problematic characters with ASCII alternatives
+    replacements = {
+        '✓': '[OK]',
+        '∞': 'inf',
+        '"': '"',
+        '"': '"',
+        ''': "'",
+        ''': "'",
+        '–': '-',
+        '—': '-',
+        '…': '...'
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
 
 def cleanup_results():
     """Clean up result files from the scraper output directory."""
@@ -66,7 +93,7 @@ def cleanup_results():
             print(f"\n{file_type}:")
             for file, size, mtime in files:
                 mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-                print(f"- {os.path.basename(file)}")
+                print(f"- {clean_text_for_display(os.path.basename(file))}")
                 print(f"  Size: {size / 1024:.2f} KB")
                 print(f"  Modified: {mtime_str}")
     
@@ -87,7 +114,7 @@ def cleanup_results():
             if files:
                 print(f"\n{file_type}:")
                 for j, (file, _, _) in enumerate(files, 1):
-                    print(f"{len(all_files) + j}. {os.path.basename(file)}")
+                    print(f"{len(all_files) + j}. {clean_text_for_display(os.path.basename(file))}")
                 all_files.extend(files)
         
         selection = input("\nFiles to remove: ").strip()
@@ -105,9 +132,9 @@ def cleanup_results():
                 file = all_files[idx][0]
                 try:
                     os.remove(file)
-                    print(f"Removed: {os.path.basename(file)}")
+                    print(f"Removed: {clean_text_for_display(os.path.basename(file))}")
                 except OSError as e:
-                    print(f"Error removing {os.path.basename(file)}: {e}")
+                    print(f"Error removing {clean_text_for_display(os.path.basename(file))}: {e}")
     
     elif choice == '2':
         days = input("Remove files older than how many days? ")
@@ -119,10 +146,10 @@ def cleanup_results():
                 if datetime.fromtimestamp(mtime) < cutoff:
                     try:
                         os.remove(file)
-                        print(f"Removed: {os.path.basename(file)}")
+                        print(f"Removed: {clean_text_for_display(os.path.basename(file))}")
                         removed += 1
                     except OSError as e:
-                        print(f"Error removing {os.path.basename(file)}: {e}")
+                        print(f"Error removing {clean_text_for_display(os.path.basename(file))}: {e}")
             print(f"\nRemoved {removed} files older than {days} days")
         except ValueError:
             print("Invalid number of days. Canceling cleanup.")

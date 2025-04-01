@@ -1,6 +1,6 @@
 # Army.mil Web Scraper
 
-A robust Python web scraper designed to crawl www.army.mil and search for specified keywords and phrases. Features automatic file saving, backup management, and comprehensive error handling.
+A Python-based web scraper for Army.mil that focuses on diversity, equity, and inclusion content.
 
 ## Features
 
@@ -31,6 +31,39 @@ A robust Python web scraper designed to crawl www.army.mil and search for specif
   - Cleanup utilities with age-based filtering
   - Deduplication of historical results
 
+## Quick Start
+
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Run the scraper:
+```bash
+# From PowerShell/CMD:
+python scraper.py
+
+# From Bash:
+python -u scraper.py
+# or
+PYTHONUNBUFFERED=1 python scraper.py
+```
+
+The scraper will:
+- Start crawling from www.army.mil
+- Search for configured keywords
+- Save results in CSV and Excel formats
+- Show real-time progress
+
+To stop the scraper:
+- Press Ctrl+C
+- Results will be saved automatically
+
+Note: When running from bash, always use the `-u` flag or set `PYTHONUNBUFFERED=1` to ensure:
+- Real-time progress updates
+- Proper handling of special characters
+- Immediate error messages
+
 ## Setup
 
 1. Install Python dependencies:
@@ -49,6 +82,42 @@ pip install -r requirements.txt
 ```bash
 python scraper.py
 ```
+
+## Running the Scraper
+
+There are several ways to run the scraper:
+
+1. From PowerShell or Command Prompt:
+```powershell
+python scraper.py
+```
+
+2. From Bash (to ensure proper output):
+```bash
+# Method 1: Use Python's unbuffered mode
+python -u scraper.py
+
+# Method 2: Set PYTHONUNBUFFERED environment variable
+PYTHONUNBUFFERED=1 python scraper.py
+```
+
+The `-u` flag or `PYTHONUNBUFFERED=1` ensures that you see real-time output when running from bash or when redirecting output to a file. This is particularly important for monitoring the scraper's progress.
+
+You should see output like this:
+```
+Initializing Army.mil web scraper...
+Python version: 3.11.x
+Operating system: posix
+Terminal type: Interactive
+Setting up Chrome WebDriver...
+
+[1/inf] Processing: https://www.army.mil
+Found 6 new URLs to crawl
+[+] Found keywords: veteran, veterans
+...
+```
+
+If you don't see any output, try running with the `-u` flag as shown above.
 
 ## Configuration
 
@@ -92,7 +161,6 @@ SETTINGS = {
     'COMPRESS_BACKUPS': True,  # Whether to compress backup files
     'MAX_BACKUPS': 5,         # Maximum number of backup files
 }
-```
 
 ## Directory Structure
 
@@ -115,32 +183,66 @@ armymilscrape/
 
 ## Analysis Tools
 
-The project includes several analysis tools:
+Several tools are provided to analyze the scraped data:
 
-1. **Quick Analysis** (`quick_analysis.py`):
-   - Domain distribution
-   - Keyword frequency
-   - Content type analysis
-   - URL path patterns
-   - Content age distribution
+1. Quick Analysis (`quick_analysis.py`):
+```bash
+# From PowerShell/CMD:
+python quick_analysis.py
 
-2. **Detailed Analysis** (`detailed_analysis.py`):
-   - Keyword co-occurrence analysis
-   - Content age trends
-   - URL structure analysis
-   - Keyword context examples
-   - Comprehensive report generation
+# From Bash:
+python -u quick_analysis.py
+```
+Provides a quick overview of the scraped data, including:
+- Total pages scraped
+- Unique keywords found
+- Time range of scraping
+- Top URLs by keyword matches
 
-3. **Keyword Analysis** (`analyze_keywords.py`):
-   - Specific keyword frequency
-   - Keyword context extraction
-   - Detailed examples of keyword usage
+2. Detailed Analysis (`detailed_analysis.py`):
+```bash
+# From PowerShell/CMD:
+python detailed_analysis.py
 
-4. **Cleanup Utility** (`cleanup.py`):
-   - Remove individual files
-   - Age-based cleanup
-   - File type organization
-   - Backup management
+# From Bash:
+python -u detailed_analysis.py
+```
+Performs in-depth analysis of:
+- Temporal patterns
+- Content patterns
+- Keyword relationships
+- URL structure
+
+3. Keyword Analysis (`analyze_keywords.py`):
+```bash
+# From PowerShell/CMD:
+python analyze_keywords.py
+
+# From Bash:
+python -u analyze_keywords.py
+```
+Focuses on keyword frequency and context:
+- Keyword occurrence counts
+- Sample contexts for each keyword
+- Keyword co-occurrence patterns
+
+4. Results Cleanup (`cleanup.py`):
+```bash
+# From PowerShell/CMD:
+python cleanup.py
+
+# From Bash:
+python -u cleanup.py
+```
+Manages the results directory:
+- Archives old result files
+- Maintains the most recent results
+- Optionally removes old files
+
+Note: When running from bash, use the `-u` flag (e.g., `python -u script.py`) to ensure proper output handling. This ensures that:
+- Output is displayed in real-time
+- Special characters are handled correctly
+- Progress indicators work as expected
 
 ## Output Files
 

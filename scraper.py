@@ -1,3 +1,14 @@
+import sys
+import os
+
+# Force unbuffered output
+if sys.stdout.isatty():
+    # Running in interactive terminal
+    sys.stdout.reconfigure(encoding='utf-8')
+else:
+    # Running in non-interactive mode (e.g., redirected to file)
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -20,6 +31,13 @@ from urllib.parse import urlparse
 
 class ArmyWebScraper:
     def __init__(self):
+        """Initialize the scraper."""
+        print("Initializing Army.mil web scraper...")
+        print(f"Python version: {sys.version}")
+        print(f"Operating system: {os.name}")
+        print(f"Terminal type: {'Interactive' if sys.stdout.isatty() else 'Non-interactive'}")
+        print("Setting up Chrome WebDriver...")
+        
         self.results = []
         self.visited_urls = set()
         self.start_time = None
@@ -88,6 +106,14 @@ class ArmyWebScraper:
             print(f"- CSV: {csv_file}")
             print(f"- Excel: {excel_file}")
 
+        # Clean results before saving
+        cleaned_results = []
+        for result in self.results:
+            cleaned_result = {}
+            for key, value in result.items():
+                cleaned_result[key] = self.clean_text_for_save(value)
+            cleaned_results.append(cleaned_result)
+
         # Save to CSV with proper encoding and quoting
         try:
             with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:
@@ -95,7 +121,7 @@ class ArmyWebScraper:
                 writer.writeheader()
                 writer.writerows(cleaned_results)
             if not is_backup:
-                print("✓ CSV file saved successfully")
+                print("[OK] CSV file saved successfully")
                 self.backup_manager.create_backup(csv_file)
         except Exception as e:
             print(f"Error saving CSV file: {str(e)}")
@@ -108,7 +134,7 @@ class ArmyWebScraper:
                         writer.writeheader()
                         writer.writerows(cleaned_results)
                     if not is_backup:
-                        print(f"✓ CSV file saved successfully with {encoding} encoding")
+                        print(f"[OK] CSV file saved successfully with {encoding} encoding")
                         self.backup_manager.create_backup(csv_file)
                     break
                 except Exception as e:
@@ -130,20 +156,20 @@ class ArmyWebScraper:
                     # Limit max width to 100 characters
                     worksheet.column_dimensions[chr(65 + idx)].width = min(max_length + 2, 100)
             if not is_backup:
-                print("✓ Excel file saved successfully")
+                print("[OK] Excel file saved successfully")
                 self.backup_manager.create_backup(excel_file)
         except ImportError:
             print("Warning: openpyxl not installed. Installing now...")
             try:
                 import subprocess
                 subprocess.check_call(['pip', 'install', 'openpyxl'])
-                print("✓ openpyxl installed successfully")
+                print("[OK] openpyxl installed successfully")
                 # Retry Excel save
                 df = pd.DataFrame(cleaned_results)
                 with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False, sheet_name='Results')
                 if not is_backup:
-                    print("✓ Excel file saved successfully after installing openpyxl")
+                    print("[OK] Excel file saved successfully after installing openpyxl")
                     self.backup_manager.create_backup(excel_file)
             except Exception as e:
                 print(f"Error installing openpyxl or saving Excel file: {str(e)}")
@@ -156,6 +182,26 @@ class ArmyWebScraper:
             print(f"\nSummary:")
             print(f"Total pages processed: {len(self.visited_urls)}")
             print(f"Relevant pages found: {len(self.results)}")
+
+    def clean_text_for_save(self, text):
+        """Clean text for saving to file, replacing problematic characters."""
+        if not isinstance(text, str):
+            return str(text)
+        # Replace problematic characters with ASCII alternatives
+        replacements = {
+            '✓': '[OK]',
+            '∞': 'inf',
+            '"': '"',
+            '"': '"',
+            ''': "'",
+            ''': "'",
+            '–': '-',
+            '—': '-',
+            '…': '...'
+        }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        return text
 
     def scrape(self):
         """Main scraping function."""
@@ -184,7 +230,7 @@ class ArmyWebScraper:
                 # Visit the URL
                 try:
                     self.total_pages += 1
-                    print(f"\n[{self.total_pages}/{MAX_PAGES or '∞'}] Processing: {current_url}")
+                    print(f"\n[{self.total_pages}/{MAX_PAGES or 'inf'}] Processing: {current_url}")
                     self._retry_operation(self.driver.get, current_url)
                     self.visited_urls.add(current_url)
                 except Exception as e:
@@ -328,7 +374,7 @@ class ArmyWebScraper:
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'page_content': clean_content
                     })
-                    print(f"✓ Found keywords: {', '.join(found_keywords)}")
+                    print(f"[+] Found keywords: {', '.join(found_keywords)}")
                     self.last_save_time = time.time()  # Reset timeout on finding keywords
         except Exception as e:
             print(f"Error processing page {self.driver.current_url}: {str(e)}")

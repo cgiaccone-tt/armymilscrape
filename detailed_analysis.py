@@ -6,6 +6,33 @@ import re
 from datetime import datetime
 import os
 from config import RESULTS_DIR_ABS
+import sys
+
+# Force unbuffered output
+if sys.stdout.isatty():
+    sys.stdout.reconfigure(encoding='utf-8')
+else:
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+
+def clean_text_for_display(text):
+    """Clean text for terminal display."""
+    if not isinstance(text, str):
+        return str(text)
+    # Replace problematic characters with ASCII alternatives
+    replacements = {
+        '✓': '[OK]',
+        '∞': 'inf',
+        '"': '"',
+        '"': '"',
+        ''': "'",
+        ''': "'",
+        '–': '-',
+        '—': '-',
+        '…': '...'
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
 
 def print_section(title):
     print(f"\n{'='*20} {title} {'='*20}")
