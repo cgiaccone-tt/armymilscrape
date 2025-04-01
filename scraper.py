@@ -54,29 +54,35 @@ class ArmyWebScraper:
 
     def save_results(self, is_backup=False):
         """Save results to both CSV and Excel files with proper encoding and formatting."""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_file = os.path.join(RESULTS_DIR_ABS, f'army_results_{timestamp}.csv')
+        excel_file = os.path.join(RESULTS_DIR_ABS, f'army_results_{timestamp}.xlsx')
+        
+        # Deduplicate results based on URL
+        seen_urls = set()
+        cleaned_results = []
+        for result in self.results:
+            if result['url'] not in seen_urls:
+                seen_urls.add(result['url'])
+                cleaned_result = {
+                    'url': self.clean_text_for_csv(result['url']),
+                    'title': self.clean_text_for_csv(result['title']),
+                    'keywords_found': self.clean_text_for_csv(result['keywords_found']),
+                    'keyword_contexts': self.clean_text_for_csv(result['keyword_contexts']),
+                    'last_modified': self.clean_text_for_csv(result.get('last_modified', 'Not available')),
+                    'timestamp': self.clean_text_for_csv(result['timestamp']),
+                    'page_content': self.clean_text_for_csv(result['page_content'])
+                }
+                cleaned_results.append(cleaned_result)
+        
+        if len(cleaned_results) != len(self.results):
+            print(f"Removed {len(self.results) - len(cleaned_results)} duplicate URLs from results")
+            self.results = cleaned_results
+
         if not self.results:
             print("No results to save.")
             return
 
-        # Generate filenames with timestamp
-        timestamp = int(time.time())
-        csv_file = os.path.join(RESULTS_DIR_ABS, f'army_results_{timestamp}.csv')
-        excel_file = os.path.join(RESULTS_DIR_ABS, f'army_results_{timestamp}.xlsx')
-        
-        # Prepare the data with proper cleaning
-        cleaned_results = []
-        for result in self.results:
-            cleaned_result = {
-                'url': self.clean_text_for_csv(result['url']),
-                'title': self.clean_text_for_csv(result['title']),
-                'keywords_found': self.clean_text_for_csv(result['keywords_found']),
-                'keyword_contexts': self.clean_text_for_csv(result['keyword_contexts']),
-                'last_modified': self.clean_text_for_csv(result.get('last_modified', 'Not available')),
-                'timestamp': self.clean_text_for_csv(result['timestamp']),
-                'page_content': self.clean_text_for_csv(result['page_content'])
-            }
-            cleaned_results.append(cleaned_result)
-        
         if not is_backup:
             print(f"\nSaving results to:")
             print(f"- CSV: {csv_file}")
