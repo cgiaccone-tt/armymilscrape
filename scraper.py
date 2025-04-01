@@ -310,19 +310,41 @@ class ArmyWebScraper:
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--window-size=1920,1080')
         
-        # Performance optimizations and error suppression
+        # Memory and performance optimizations
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-logging')
         chrome_options.add_argument('--disable-notifications')
         chrome_options.add_argument('--disable-default-apps')
         chrome_options.add_argument('--dns-prefetch-disable')
-        chrome_options.add_argument('--log-level=3')  # Only show fatal errors
+        chrome_options.add_argument('--log-level=3')
         chrome_options.add_argument('--silent')
         chrome_options.add_argument('--disable-browser-side-navigation')
         chrome_options.add_argument('--disable-web-security')
         chrome_options.add_argument('--disable-client-side-phishing-detection')
         chrome_options.add_argument('--disable-popup-blocking')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        
+        # Additional performance optimizations for WSL/bash
+        chrome_options.add_argument('--disable-features=TranslateUI')
+        chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+        chrome_options.add_argument('--disable-site-isolation-trials')
+        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+        chrome_options.add_argument('--disable-smooth-scrolling')
+        chrome_options.add_argument('--disable-software-rasterizer')
+        chrome_options.add_argument('--ignore-certificate-errors')
+        chrome_options.add_argument('--memory-pressure-off')
+        
+        # Process model optimizations
+        chrome_options.add_argument('--single-process')
+        chrome_options.add_argument('--process-per-tab')
+        chrome_options.add_argument('--disable-hang-monitor')
+        
+        # Cache and disk optimizations
+        chrome_options.add_argument('--disk-cache-size=1')
+        chrome_options.add_argument('--media-cache-size=1')
+        chrome_options.add_argument('--disable-application-cache')
+        chrome_options.add_argument('--disable-offline-load-stale-cache')
+        
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.page_load_strategy = 'eager'  # Don't wait for all resources
