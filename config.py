@@ -66,7 +66,7 @@ KEYWORDS = [
 ]
 
 # Maximum number of pages to crawl (set to None for unlimited)
-MAX_PAGES = None
+MAX_PAGES = 200
 
 # Excluded paths and file types
 EXCLUDED_PATHS = [

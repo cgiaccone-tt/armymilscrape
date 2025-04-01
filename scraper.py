@@ -83,13 +83,13 @@ class ArmyWebScraper:
             if result['url'] not in seen_urls:
                 seen_urls.add(result['url'])
                 cleaned_result = {
-                    'url': self.clean_text_for_csv(result['url']),
-                    'title': self.clean_text_for_csv(result['title']),
-                    'keywords_found': self.clean_text_for_csv(result['keywords_found']),
-                    'keyword_contexts': self.clean_text_for_csv(result['keyword_contexts']),
-                    'last_modified': self.clean_text_for_csv(result.get('last_modified', 'Not available')),
-                    'timestamp': self.clean_text_for_csv(result['timestamp']),
-                    'page_content': self.clean_text_for_csv(result['page_content'])
+                    'url': self.clean_text_for_save(result['url']),
+                    'title': self.clean_text_for_save(result['title']),
+                    'keywords_found': self.clean_text_for_save(result['keywords_found']),
+                    'keyword_contexts': self.clean_text_for_save(result['keyword_contexts']),
+                    'last_modified': self.clean_text_for_save(result.get('last_modified', 'Not available')),
+                    'timestamp': self.clean_text_for_save(result['timestamp']),
+                    'page_content': self.clean_text_for_save(result['page_content'])
                 }
                 cleaned_results.append(cleaned_result)
         
@@ -106,73 +106,23 @@ class ArmyWebScraper:
             print(f"- CSV: {csv_file}")
             print(f"- Excel: {excel_file}")
 
-        # Clean results before saving
-        cleaned_results = []
-        for result in self.results:
-            cleaned_result = {}
-            for key, value in result.items():
-                cleaned_result[key] = self.clean_text_for_save(value)
-            cleaned_results.append(cleaned_result)
-
-        # Save to CSV with proper encoding and quoting
+        # Save to CSV
         try:
-            with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:
+            with open(csv_file, 'w', newline='', encoding='ascii') as f:
                 writer = csv.DictWriter(f, fieldnames=['url', 'title', 'keywords_found', 'keyword_contexts', 'last_modified', 'timestamp', 'page_content'])
                 writer.writeheader()
                 writer.writerows(cleaned_results)
             if not is_backup:
                 print("[OK] CSV file saved successfully")
-                self.backup_manager.create_backup(csv_file)
         except Exception as e:
             print(f"Error saving CSV file: {str(e)}")
-            # Try alternate encodings
-            for encoding in ['utf-8', 'cp1252']:
-                try:
-                    print(f"Trying {encoding} encoding...")
-                    with open(csv_file, 'w', newline='', encoding=encoding) as f:
-                        writer = csv.DictWriter(f, fieldnames=['url', 'title', 'keywords_found', 'keyword_contexts', 'last_modified', 'timestamp', 'page_content'])
-                        writer.writeheader()
-                        writer.writerows(cleaned_results)
-                    if not is_backup:
-                        print(f"[OK] CSV file saved successfully with {encoding} encoding")
-                        self.backup_manager.create_backup(csv_file)
-                    break
-                except Exception as e:
-                    print(f"Failed with {encoding}: {str(e)}")
 
-        # Save to Excel with column width optimization
+        # Save to Excel
         try:
             df = pd.DataFrame(cleaned_results)
-            with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Results')
-                worksheet = writer.sheets['Results']
-                
-                # Optimize column widths
-                for idx, col in enumerate(df.columns):
-                    max_length = max(
-                        df[col].astype(str).apply(len).max(),
-                        len(str(col))
-                    )
-                    # Limit max width to 100 characters
-                    worksheet.column_dimensions[chr(65 + idx)].width = min(max_length + 2, 100)
+            df.to_excel(excel_file, index=False, engine='openpyxl')
             if not is_backup:
                 print("[OK] Excel file saved successfully")
-                self.backup_manager.create_backup(excel_file)
-        except ImportError:
-            print("Warning: openpyxl not installed. Installing now...")
-            try:
-                import subprocess
-                subprocess.check_call(['pip', 'install', 'openpyxl'])
-                print("[OK] openpyxl installed successfully")
-                # Retry Excel save
-                df = pd.DataFrame(cleaned_results)
-                with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='Results')
-                if not is_backup:
-                    print("[OK] Excel file saved successfully after installing openpyxl")
-                    self.backup_manager.create_backup(excel_file)
-            except Exception as e:
-                print(f"Error installing openpyxl or saving Excel file: {str(e)}")
         except Exception as e:
             print(f"Error saving Excel file: {str(e)}")
         
@@ -187,20 +137,38 @@ class ArmyWebScraper:
         """Clean text for saving to file, replacing problematic characters."""
         if not isinstance(text, str):
             return str(text)
-        # Replace problematic characters with ASCII alternatives
+            
+        # Replace problematic Unicode characters with ASCII equivalents
         replacements = {
-            '✓': '[OK]',
-            '∞': 'inf',
-            '"': '"',
-            '"': '"',
-            ''': "'",
-            ''': "'",
-            '–': '-',
-            '—': '-',
-            '…': '...'
+            '\u2713': 'check',  # 
+            '\u2714': 'check',  # 
+            '\u2715': 'x',      # 
+            '\u2716': 'x',      # 
+            '\u2717': 'x',      # 
+            '\u2718': 'x',      # 
+            '\u0101': 'a',      # 
+            '\u0113': 'e',      # 
+            '\u012B': 'i',      # 
+            '\u014D': 'o',      # 
+            '\u016B': 'u',      # 
+            '\u2019': "'",      # '
+            '\u2018': "'",      # '
+            '\u201C': '"',      # "
+            '\u201D': '"',      # "
+            '\u2026': '...',    # …
+            '\u2013': '-',      # –
+            '\u2014': '--',     # —
+            '\u00A0': ' ',      # non-breaking space
+            '\r': ' ',
+            '\n': ' ',
+            '\t': ' '
         }
+        
         for old, new in replacements.items():
             text = text.replace(old, new)
+            
+        # Remove any remaining non-ASCII characters
+        text = text.encode('ascii', 'replace').decode('ascii')
         return text
 
     def scrape(self):
