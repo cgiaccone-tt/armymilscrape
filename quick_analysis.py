@@ -3,9 +3,26 @@ from collections import Counter
 from urllib.parse import urlparse
 import re
 from datetime import datetime
+import os
+from config import RESULTS_DIR_ABS
 
-# Read the results
-df = pd.read_csv('army_results.csv')
+def get_latest_results_file():
+    """Get the most recent results file from the results directory."""
+    files = []
+    for f in os.listdir(RESULTS_DIR_ABS):
+        if f.startswith('army_results_') and f.endswith('.xlsx'):
+            path = os.path.join(RESULTS_DIR_ABS, f)
+            files.append((os.path.getmtime(path), path))
+    if not files:
+        raise FileNotFoundError("No results files found")
+    return max(files)[1]
+
+# Read the latest results
+results_file = get_latest_results_file()
+print(f"Loading results from {os.path.basename(results_file)}...")
+df = pd.read_excel(results_file)
+
+print(f"\nTotal unique pages analyzed: {len(df)}")
 
 # 1. Domain Analysis
 print("\n=== Domain Distribution ===")
@@ -16,24 +33,29 @@ print(domain_counts)
 # 2. Keyword Analysis
 print("\n=== Most Common Keywords ===")
 all_keywords = []
-for keywords in df['keywords_found'].str.split(','):
-    all_keywords.extend(keywords)
+for keywords in df['keywords_found'].dropna().str.split(','):
+    all_keywords.extend([k.strip() for k in keywords])
 keyword_counts = Counter(all_keywords)
-print(pd.Series(keyword_counts).sort_values(ascending=False))
+print(pd.Series(keyword_counts).sort_values(ascending=False).head(10))
 
 # 3. Content Type Analysis
 print("\n=== Content Type Distribution ===")
 def get_content_type(url):
-    if '/news/' in url.lower():
+    url_lower = url.lower()
+    if '/news/' in url_lower:
         return 'News'
-    elif '/publications/' in url.lower() or 'pubs' in url.lower():
+    elif '/publications/' in url_lower or '/pubs/' in url_lower:
         return 'Publications'
-    elif '/photos/' in url.lower():
-        return 'Photos'
-    elif '/features/' in url.lower():
+    elif '/photos/' in url_lower or '/images/' in url_lower:
+        return 'Media'
+    elif '/features/' in url_lower:
         return 'Features'
-    elif '/leaders/' in url.lower():
+    elif '/leaders/' in url_lower or '/leadership/' in url_lower:
         return 'Leadership'
+    elif '/careers/' in url_lower or '/jobs/' in url_lower:
+        return 'Careers'
+    elif '/about/' in url_lower:
+        return 'About'
     else:
         return 'Other'
 
@@ -50,14 +72,26 @@ print("Total scraping duration:", df['timestamp'].max() - df['timestamp'].min())
 # 5. URL Path Analysis
 print("\n=== Common URL Patterns ===")
 df['path'] = df['url'].apply(lambda x: urlparse(x).path)
-path_patterns = Counter([p.split('/')[1] if len(p.split('/')) > 1 else 'root' for p in df['path']])
-print(pd.Series(path_patterns).sort_values(ascending=False))
+path_patterns = Counter()
+for path in df['path']:
+    parts = [p for p in path.split('/') if p]
+    if parts:
+        path_patterns[parts[0]] += 1
 
-# 6. Summary Statistics
-print("\n=== Summary Statistics ===")
-print(f"Total unique pages with keywords: {len(df)}")
-print(f"Average keywords per page: {len(all_keywords) / len(df):.2f}")
-print(f"Number of unique keywords found: {len(set(all_keywords))}")
+print("\nTop URL path patterns:")
+for pattern, count in path_patterns.most_common(10):
+    print(f"/{pattern}/: {count} pages")
+
+# 6. Last Modified Analysis
+print("\n=== Content Age Analysis ===")
+df['last_modified'] = pd.to_datetime(df['last_modified'], errors='coerce')
+df['age_days'] = (pd.Timestamp.now() - df['last_modified']).dt.days
+
+age_bins = [0, 30, 90, 180, 365, float('inf')]
+age_labels = ['Last 30 days', '1-3 months', '3-6 months', '6-12 months', 'Over 1 year']
+df['age_group'] = pd.cut(df['age_days'], bins=age_bins, labels=age_labels)
+print("\nContent age distribution:")
+print(df['age_group'].value_counts().sort_index())
 
 # Save detailed analysis to file
 with open('analysis_results.txt', 'w') as f:
@@ -66,11 +100,13 @@ with open('analysis_results.txt', 'w') as f:
     f.write("=== Domain Distribution ===\n")
     f.write(str(domain_counts) + "\n\n")
     f.write("=== Most Common Keywords ===\n")
-    f.write(str(pd.Series(keyword_counts).sort_values(ascending=False)) + "\n\n")
+    f.write(str(pd.Series(keyword_counts).sort_values(ascending=False).head(10)) + "\n\n")
     f.write("=== Content Type Distribution ===\n")
     f.write(str(df['content_type'].value_counts()) + "\n\n")
     f.write("=== URL Path Analysis ===\n")
-    f.write(str(pd.Series(path_patterns).sort_values(ascending=False)) + "\n\n")
-    f.write("\nDetailed URL List:\n")
+    f.write("Top URL path patterns:\n")
+    for pattern, count in path_patterns.most_common(10):
+        f.write(f"/{pattern}/: {count} pages\n")
+    f.write("\n\nDetailed URL List:\n")
     for idx, row in df.iterrows():
         f.write(f"\n{row['url']}\nKeywords: {row['keywords_found']}\n")

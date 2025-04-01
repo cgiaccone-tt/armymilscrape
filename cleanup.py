@@ -2,7 +2,8 @@ import os
 import glob
 import shutil
 import fnmatch
-from config import RESULTS_DIR_ABS, CLEANUP_PATTERNS
+from datetime import datetime, timedelta
+from config import RESULTS_DIR_ABS
 
 def cleanup_results():
     """Clean up result files from the scraper output directory."""
@@ -17,59 +18,129 @@ def cleanup_results():
     print("Finding result files...")
     files_info = []
     
-    # Use cleanup patterns from config
-    for file in os.listdir(RESULTS_DIR_ABS):
-        if any(fnmatch.fnmatch(file, pattern) for pattern in CLEANUP_PATTERNS):
-            file_path = os.path.join(RESULTS_DIR_ABS, file)
+    # File patterns to match
+    cleanup_patterns = [
+        'army_results_*.xlsx',
+        'army_results_*.csv',
+        'detailed_analysis_*.txt',
+        'analysis_results_*.txt'
+    ]
+    
+    # Get file information
+    for pattern in cleanup_patterns:
+        for file in glob.glob(os.path.join(RESULTS_DIR_ABS, pattern)):
             try:
-                size = os.path.getsize(file_path)
-                files_info.append((file, size))
+                size = os.path.getsize(file)
+                mtime = os.path.getmtime(file)
+                files_info.append((file, size, mtime))
                 total_size += size
                 total_files += 1
             except OSError as e:
-                print(f"Warning: Could not get size of {file}: {e}")
+                print(f"Warning: Could not get info for {file}: {e}")
     
     if not files_info:
         print("No result files found in results directory.")
         return
     
+    # Group files by type
+    files_by_type = {
+        'Results': [],
+        'Analysis': [],
+        'Other': []
+    }
+    
+    for file, size, mtime in sorted(files_info, key=lambda x: x[2], reverse=True):
+        filename = os.path.basename(file)
+        if filename.startswith('army_results_'):
+            files_by_type['Results'].append((file, size, mtime))
+        elif filename.startswith(('detailed_analysis_', 'analysis_results_')):
+            files_by_type['Analysis'].append((file, size, mtime))
+        else:
+            files_by_type['Other'].append((file, size, mtime))
+    
     # Print summary before removal
     print(f"\nFound {total_files:,} files (Total size: {total_size / (1024*1024):.2f} MB):")
-    for file, size in sorted(files_info):
-        print(f"- {file} ({size / 1024:.2f} KB)")
+    
+    for file_type, files in files_by_type.items():
+        if files:
+            print(f"\n{file_type}:")
+            for file, size, mtime in files:
+                mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                print(f"- {os.path.basename(file)}")
+                print(f"  Size: {size / 1024:.2f} KB")
+                print(f"  Modified: {mtime_str}")
     
     # Ask for confirmation
     print("\nOptions:")
     print("1. Remove individual files")
-    print("2. Remove entire results directory")
-    print("3. Cancel")
+    print("2. Remove all files older than X days")
+    print("3. Remove entire results directory")
+    print("4. Cancel")
     
-    choice = input("\nEnter your choice (1-3): ")
+    choice = input("\nEnter your choice (1-4): ")
     
     if choice == '1':
         # Remove individual files
-        print("\nRemoving files...")
-        for file, _ in files_info:
-            try:
-                os.remove(os.path.join(RESULTS_DIR_ABS, file))
-                print(f"✓ Removed {file}")
-            except Exception as e:
-                print(f"✗ Error removing {file}: {str(e)}")
-        print(f"\nCleanup complete. Removed {total_files:,} files ({total_size / (1024*1024):.2f} MB)")
+        print("\nEnter the numbers of files to remove (comma-separated) or 'all':")
+        all_files = []
+        for i, (file_type, files) in enumerate(files_by_type.items(), 1):
+            if files:
+                print(f"\n{file_type}:")
+                for j, (file, _, _) in enumerate(files, 1):
+                    print(f"{len(all_files) + j}. {os.path.basename(file)}")
+                all_files.extend(files)
         
+        selection = input("\nFiles to remove: ").strip()
+        if selection.lower() == 'all':
+            indices = range(len(all_files))
+        else:
+            try:
+                indices = [int(i.strip()) - 1 for i in selection.split(',')]
+            except ValueError:
+                print("Invalid input. Canceling cleanup.")
+                return
+        
+        for idx in indices:
+            if 0 <= idx < len(all_files):
+                file = all_files[idx][0]
+                try:
+                    os.remove(file)
+                    print(f"Removed: {os.path.basename(file)}")
+                except OSError as e:
+                    print(f"Error removing {os.path.basename(file)}: {e}")
+    
     elif choice == '2':
-        # Remove entire directory
-        confirm = input("\nAre you sure you want to remove the entire results directory? (yes/no): ")
+        days = input("Remove files older than how many days? ")
+        try:
+            days = int(days)
+            cutoff = datetime.now() - timedelta(days=days)
+            removed = 0
+            for file, _, mtime in sum(files_by_type.values(), []):
+                if datetime.fromtimestamp(mtime) < cutoff:
+                    try:
+                        os.remove(file)
+                        print(f"Removed: {os.path.basename(file)}")
+                        removed += 1
+                    except OSError as e:
+                        print(f"Error removing {os.path.basename(file)}: {e}")
+            print(f"\nRemoved {removed} files older than {days} days")
+        except ValueError:
+            print("Invalid number of days. Canceling cleanup.")
+    
+    elif choice == '3':
+        confirm = input("Are you sure you want to remove ALL files? (yes/no): ")
         if confirm.lower() == 'yes':
             try:
                 shutil.rmtree(RESULTS_DIR_ABS)
-                print(f"✓ Removed results directory with {total_files:,} files ({total_size / (1024*1024):.2f} MB)")
-            except Exception as e:
-                print(f"✗ Error removing results directory: {str(e)}")
+                os.makedirs(RESULTS_DIR_ABS)
+                print("Results directory cleared and recreated.")
+            except OSError as e:
+                print(f"Error clearing results directory: {e}")
         else:
-            print("Operation cancelled.")
+            print("Cleanup canceled.")
+    
     else:
-        print("Operation cancelled.")
+        print("Cleanup canceled.")
 
 if __name__ == "__main__":
     cleanup_results()

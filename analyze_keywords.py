@@ -1,6 +1,19 @@
 import pandas as pd
 from collections import Counter
 import re
+import os
+from config import RESULTS_DIR_ABS
+
+def get_latest_results_file():
+    """Get the most recent results file from the results directory."""
+    files = []
+    for f in os.listdir(RESULTS_DIR_ABS):
+        if f.startswith('army_results_') and f.endswith('.xlsx'):
+            path = os.path.join(RESULTS_DIR_ABS, f)
+            files.append((os.path.getmtime(path), path))
+    if not files:
+        raise FileNotFoundError("No results files found")
+    return max(files)[1]
 
 def analyze_keywords(df):
     # Initialize counter for keywords
@@ -35,38 +48,28 @@ def find_keyword_context(df, keyword, context_words=50):
                 })
     return contexts
 
-# Read the CSV file
-print("Loading results...")
-df = pd.read_csv('army_results.csv')
+if __name__ == "__main__":
+    # Get and read the latest results file
+    results_file = get_latest_results_file()
+    print(f"Loading results from {os.path.basename(results_file)}...")
+    df = pd.read_excel(results_file)
 
-# Overall statistics
-print(f"\nAnalysis of {len(df)} articles:")
-print(f"Total pages processed: 100")
-print(f"Pages with relevant keywords: {len(df)}")
-print(f"Hit rate: {(len(df) / 100 * 100):.1f}%")
+    # Overall statistics
+    total_pages = len(df['url'].unique())
+    print(f"\nAnalysis of {total_pages} unique pages:")
+    print(f"Pages with relevant keywords: {len(df)}")
 
-# Keyword frequency analysis
-print("\nKeyword Frequencies:")
-keyword_stats = analyze_keywords(df)
-print(keyword_stats.to_string(index=False))
+    # Keyword frequency analysis
+    print("\nKeyword Frequencies:")
+    keyword_stats = analyze_keywords(df)
+    print(keyword_stats.to_string(index=False))
 
-# Find most common multi-word phrases
-print("\nTop 5 most common multi-word keywords:")
-multi_word_keywords = keyword_stats[keyword_stats['Keyword'].str.contains(' ')].head()
-print(multi_word_keywords.to_string(index=False))
-
-# Find most common single-word keywords
-print("\nTop 5 most common single-word keywords:")
-single_word_keywords = keyword_stats[~keyword_stats['Keyword'].str.contains(' ')].head()
-print(single_word_keywords.to_string(index=False))
-
-# Sample contexts for top keywords
-print("\nSample contexts for top keywords:")
-for keyword in keyword_stats.head()['Keyword']:
-    contexts = find_keyword_context(df, keyword)
-    if contexts:
+    # Detailed context for top keywords
+    print("\nTop 3 Keywords Context Examples:")
+    for keyword in keyword_stats['Keyword'][:3]:
         print(f"\nContexts for '{keyword}':")
-        for ctx in contexts[:2]:  # Show first 2 contexts for each keyword
-            print(f"\nTitle: {ctx['title']}")
-            print(f"Context: {ctx['context']}")
-            print(f"URL: {ctx['url']}")
+        contexts = find_keyword_context(df, keyword)[:2]  # Show 2 examples per keyword
+        for ctx in contexts:
+            print(f"\nURL: {ctx['url']}")
+            print(f"Title: {ctx['title']}")
+            print(f"Context: {ctx['context']}\n")

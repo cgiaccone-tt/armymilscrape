@@ -2,7 +2,7 @@
 
 ## Table of Contents
 - [ArmyWebScraper](#armywebscraper)
-- [BackupManager](#backupmanager)
+- [Analysis Tools](#analysis-tools)
 - [Configuration](#configuration)
 - [Data Structures](#data-structures)
 
@@ -32,36 +32,37 @@ scraper.scrape()
   - Crawls army.mil website
   - Saves results to files
   - Creates backups
+  - Deduplicates results
 - **Raises**:
   - `WebDriverException`: If browser initialization fails
   - `IOError`: If file operations fail
 
-##### `save_results(is_backup=False)`
-Save results to both CSV and Excel files.
+##### `save_results()`
+Save results to both CSV and Excel files with deduplication.
 
 ```python
-scraper.save_results()  # Normal save
-scraper.save_results(is_backup=True)  # Backup save
+scraper.save_results()  # Normal save with deduplication
 ```
 
-- **Parameters**:
-  - `is_backup` (bool): Whether this is a backup save
+- **Parameters**: None
 - **Returns**: None
 - **Effects**:
-  - Creates timestamped files
-  - Attempts multiple encodings if needed
-  - Creates compressed backups
+  - Deduplicates results based on URL
+  - Creates timestamped Excel file (primary)
+  - Creates timestamped CSV file (legacy)
+  - Keeps most recent entry for each URL
 
-##### `clean_text_for_csv(text)`
-Clean text for CSV output.
+##### `is_valid_url(url)`
+Check if a URL should be processed based on domain and exclusion rules.
 
 ```python
-cleaned = scraper.clean_text_for_csv("Some text\nwith newlines")
+if scraper.is_valid_url("https://www.army.mil/article/123"):
+    # Process URL
 ```
 
 - **Parameters**:
-  - `text` (str): Text to clean
-- **Returns**: str
+  - `url` (str): URL to validate
+- **Returns**: bool
 - **Effects**: None
 
 ##### `find_keywords_in_text(text, context_chars=100)`
@@ -78,190 +79,169 @@ keywords, contexts = scraper.find_keywords_in_text("Some text with keywords")
   - List of found keywords
   - List of context dictionaries
 
-## BackupManager
+## Analysis Tools
 
-Handles file backups and restoration.
+### Class: `QuickAnalysis`
 
-### Class: `BackupManager`
-
-```python
-from backup_manager import BackupManager
-
-manager = BackupManager()
-```
-
-#### Methods
-
-##### `create_backup(file_path)`
-Create a backup of a file.
+Quick analysis of scraping results.
 
 ```python
-manager.create_backup("/path/to/file.csv")
+from quick_analysis import analyze_results
+
+# Run quick analysis
+analyze_results()
 ```
 
-- **Parameters**:
-  - `file_path` (str): Path to file to backup
-- **Returns**: None
-- **Effects**:
-  - Creates compressed backup
-  - Manages backup rotation
+#### Features
+- Domain distribution
+- Keyword frequency
+- Content type analysis
+- URL path patterns
+- Content age distribution
 
-##### `restore_backup(backup_file)`
-Restore a file from backup.
+### Class: `DetailedAnalysis`
+
+In-depth analysis of scraping results.
 
 ```python
-manager.restore_backup("army_results_20250331_120000.csv.gz")
+from detailed_analysis import run_detailed_analysis
+
+# Run detailed analysis
+run_detailed_analysis()
 ```
 
-- **Parameters**:
-  - `backup_file` (str): Name of backup file to restore
-- **Returns**: bool
-  - True if restoration successful
-  - False if failed
-- **Effects**:
-  - Decompresses backup
-  - Restores to original location
+#### Features
+- Keyword co-occurrence analysis
+- Content age trends
+- URL structure analysis
+- Keyword context examples
+- Report generation
 
-##### `list_backups()`
-List all available backups.
+### Class: `KeywordAnalyzer`
+
+Focused keyword analysis tool.
 
 ```python
-backups = manager.list_backups()
+from analyze_keywords import analyze_keywords
+
+# Analyze specific keywords
+analyze_keywords()
 ```
 
-- **Returns**: list
-  - List of backup file paths
-- **Effects**:
-  - Prints backup information to console
+#### Features
+- Keyword frequency analysis
+- Context extraction
+- Usage examples
+
+### Class: `CleanupUtility`
+
+Results cleanup and management tool.
+
+```python
+from cleanup import cleanup_results
+
+# Run cleanup utility
+cleanup_results()
+```
+
+#### Features
+- Individual file removal
+- Age-based cleanup
+- File type organization
+- Interactive interface
 
 ## Configuration
 
-### Settings Dictionary
+The scraper and analysis tools are configured through `config.py`.
+
+### URL Filtering
 
 ```python
-from config import SETTINGS
+# Excluded paths
+EXCLUDED_PATHS = [
+    '/downloads/',
+    '/media/',
+    '/pdf/'
+]
 
-# Browser settings
-num_browsers = SETTINGS['NUM_BROWSERS']
-page_timeout = SETTINGS['PAGE_LOAD_TIMEOUT']
-
-# Rate limiting
-delay = SETTINGS['PAGE_LOAD_DELAY']
-save_interval = SETTINGS['SAVE_INTERVAL']
-
-# Content settings
-context_chars = SETTINGS['CONTEXT_CHARS']
-max_length = SETTINGS['MAX_CONTENT_LENGTH']
-
-# Backup settings
-backup_enabled = SETTINGS['BACKUP_FILES']
-compress = SETTINGS['COMPRESS_BACKUPS']
-max_backups = SETTINGS['MAX_BACKUPS']
+# Excluded file types
+EXCLUDED_FILE_TYPES = [
+    '.pdf', '.doc', '.docx',
+    '.mp3', '.mp4', '.zip'
+]
 ```
 
-### Constants
+### Scraper Settings
 
 ```python
-from config import (
-    BASE_URL,
-    KEYWORDS,
-    MAX_PAGES,
-    RESULTS_DIR,
-    RESULTS_DIR_ABS
-)
+SETTINGS = {
+    'NUM_BROWSERS': 4,
+    'PAGE_LOAD_TIMEOUT': 30,
+    'RETRY_ATTEMPTS': 3,
+    'CONTEXT_CHARS': 100
+}
 ```
 
 ## Data Structures
 
-### Result Dictionary
+### Results DataFrame
 
-Each scraped page produces a result dictionary:
+The scraper outputs results in both Excel and CSV formats with the following structure:
 
-```python
-result = {
-    'url': str,          # Full URL of the page
-    'title': str,        # Page title
-    'keywords_found': str,  # Comma-separated keywords
-    'keyword_contexts': str,  # JSON string of context objects
-    'last_modified': str,    # Last modified date
-    'timestamp': str,        # Scrape timestamp
-    'page_content': str      # Cleaned page content
-}
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| url | string | Full URL of the page |
+| title | string | Page title |
+| keywords_found | string | Comma-separated list of found keywords |
+| page_content | string | Cleaned page content |
+| timestamp | datetime | Scraping timestamp |
+| last_modified | datetime | Page's last modified date |
 
-### Context Object
+### Analysis Output
 
-Keyword context is stored as JSON:
+Analysis tools generate reports with the following metrics:
 
-```python
-context = {
-    'keyword': str,      # Found keyword
-    'context': str,      # Surrounding text
-    'position': int      # Position in content
-}
-```
+1. **Quick Analysis**:
+   - Domain counts
+   - Keyword frequencies
+   - Content type distribution
+   - URL patterns
+   - Age distribution
+
+2. **Detailed Analysis**:
+   - Keyword co-occurrences
+   - Content trends
+   - URL structure patterns
+   - Context examples
+   - Comprehensive statistics
 
 ## Error Handling
 
-### Retry Mechanism
-
-```python
-# Example of retry operation
-result = scraper._retry_operation(
-    operation,
-    *args,
-    max_attempts=SETTINGS['RETRY_ATTEMPTS'],
-    delay=SETTINGS['RETRY_DELAY']
-)
-```
-
-### File Operations
+All tools include robust error handling:
 
 ```python
 try:
-    # Try UTF-8 with BOM
-    with open(file, 'w', encoding='utf-8-sig') as f:
-        # Write operations
-except UnicodeEncodeError:
-    # Try alternate encodings
-    for encoding in ['utf-8', 'cp1252']:
-        try:
-            with open(file, 'w', encoding=encoding) as f:
-                # Write operations
-        except UnicodeEncodeError:
-            continue
+    scraper.scrape()
+except WebDriverException as e:
+    # Handle browser errors
+except IOError as e:
+    # Handle file operation errors
+except Exception as e:
+    # Handle unexpected errors
 ```
 
-## Examples
+## Best Practices
 
-### Basic Usage
+1. **URL Filtering**:
+   - Keep `EXCLUDED_PATHS` and `EXCLUDED_FILE_TYPES` updated
+   - Use domain validation for security
 
-```python
-# Initialize and run scraper
-scraper = ArmyWebScraper()
-scraper.scrape()
+2. **Data Management**:
+   - Run cleanup regularly
+   - Monitor disk space usage
+   - Keep backups of important results
 
-# List backups
-manager = BackupManager()
-manager.list_backups()
-
-# Restore specific backup
-manager.restore_backup("army_results_20250331_120000.csv.gz")
-```
-
-### Custom Configuration
-
-```python
-# Modify settings before running
-from config import SETTINGS
-
-SETTINGS.update({
-    'NUM_BROWSERS': 2,
-    'PAGE_LOAD_DELAY': 5,
-    'SAVE_INTERVAL': 60,
-    'MAX_BACKUPS': 10
-})
-
-scraper = ArmyWebScraper()
-scraper.scrape()
-```
+3. **Analysis**:
+   - Start with quick analysis
+   - Use detailed analysis for specific insights
+   - Export reports for documentation
