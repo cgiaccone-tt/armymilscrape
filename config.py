@@ -66,7 +66,7 @@ KEYWORDS = [
 ]
 
 # Maximum number of pages to crawl (set to None for unlimited)
-MAX_PAGES = 200
+MAX_PAGES = None
 
 # Excluded paths and file types
 EXCLUDED_PATHS = [
@@ -125,6 +125,7 @@ SETTINGS = {
     'ELEMENT_TIMEOUT': 10,  # Seconds to wait for elements
     'RETRY_ATTEMPTS': 3,  # Number of times to retry failed requests
     'RETRY_DELAY': 2,  # Seconds to wait between retries
+    'MAX_RETRIES': 3,  # Maximum number of retries for operations
     
     # Rate limiting
     'PAGE_LOAD_DELAY': 2,  # Seconds to wait between page loads

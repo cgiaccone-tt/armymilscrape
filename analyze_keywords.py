@@ -1,103 +1,110 @@
-import sys
-import os
 import pandas as pd
+import matplotlib.pyplot as plt
 from collections import Counter
-import re
-import json
-from config import RESULTS_DIR_ABS
+import seaborn as sns
+from datetime import datetime
+import os
+from config import RESULTS_DIR_ABS, KEYWORDS
 
-# Force unbuffered output
-if sys.stdout.isatty():
-    sys.stdout.reconfigure(encoding='utf-8')
-else:
-    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
-
-def clean_text_for_display(text):
-    """Clean text for terminal display."""
-    if not isinstance(text, str):
-        return str(text)
-    # Replace problematic characters with ASCII alternatives
-    replacements = {
-        '✓': '[OK]',
-        '∞': 'inf',
-        '"': '"',
-        '"': '"',
-        ''': "'",
-        ''': "'",
-        '–': '-',
-        '—': '-',
-        '…': '...'
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    return text
-
-def get_latest_results_file():
-    """Get the most recent results file from the results directory."""
-    files = []
-    for f in os.listdir(RESULTS_DIR_ABS):
-        if f.startswith('army_results_') and f.endswith('.xlsx'):
-            path = os.path.join(RESULTS_DIR_ABS, f)
-            files.append((os.path.getmtime(path), path))
+def load_latest_results():
+    """Load the most recent results file."""
+    # Find the most recent xlsx file
+    files = [f for f in os.listdir(RESULTS_DIR_ABS) if f.endswith('.xlsx')]
     if not files:
-        raise FileNotFoundError("No results files found")
-    return max(files)[1]
+        print("No results files found.")
+        return None
+        
+    latest_file = max(files, key=lambda x: os.path.getmtime(os.path.join(RESULTS_DIR_ABS, x)))
+    file_path = os.path.join(RESULTS_DIR_ABS, latest_file)
+    print(f"\nLoading results from {latest_file}...")
+    
+    return pd.read_excel(file_path)
 
 def analyze_keywords(df):
-    # Initialize counter for keywords
-    keyword_counter = Counter()
+    """Analyze keyword distribution and patterns."""
+    # Convert keywords string to list
+    df['keyword_list'] = df['keywords'].str.split(',')
+    
+    # Count total occurrences of each keyword
+    keyword_counts = Counter()
+    for keywords in df['keyword_list']:
+        keyword_counts.update([k.strip() for k in keywords])
+    
+    # Sort by frequency
+    sorted_counts = dict(sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True))
+    
+    print("\n=== Keyword Analysis ===")
+    print("\nTop 20 Most Common Keywords:")
+    for keyword, count in list(sorted_counts.items())[:20]:
+        print(f"{keyword:<20}: {count:>5} occurrences")
+    
+    # Calculate percentages
+    total_pages = len(df)
+    print("\nKeyword Coverage (% of pages):")
+    for keyword, count in sorted_counts.items():
+        percentage = (count / total_pages) * 100
+        if percentage > 5:  # Show only keywords appearing in more than 5% of pages
+            print(f"{keyword:<20}: {percentage:>6.1f}%")
+    
+    return sorted_counts
 
-    # Count occurrences of each keyword
-    for keywords in df['keywords_found']:
-        if isinstance(keywords, str):
-            for keyword in keywords.split(','):
-                keyword_counter[keyword.strip()] += 1
+def analyze_patterns(df):
+    """Analyze patterns and correlations in the data."""
+    print("\n=== Pattern Analysis ===")
+    
+    # Analyze keyword co-occurrence
+    co_occurrences = Counter()
+    for keywords in df['keyword_list']:
+        keywords = [k.strip() for k in keywords]
+        for i in range(len(keywords)):
+            for j in range(i + 1, len(keywords)):
+                pair = tuple(sorted([keywords[i], keywords[j]]))
+                co_occurrences[pair] += 1
+    
+    print("\nTop 10 Keyword Co-occurrences:")
+    for (kw1, kw2), count in co_occurrences.most_common(10):
+        print(f"{kw1} + {kw2}: {count} pages")
+    
+    return co_occurrences
 
-    # Convert to DataFrame for better display
-    results = pd.DataFrame(keyword_counter.most_common(), columns=['Keyword', 'Occurrences'])
-    results['Percentage'] = (results['Occurrences'] / len(df) * 100).round(1)
-
-    return results
-
-def find_keyword_context(df, keyword, context_words=50):
-    contexts = []
-    for _, row in df.iterrows():
-        if isinstance(row['keywords_found'], str) and keyword in row['keywords_found']:
-            content = row['page_content']
-            # Find all instances of the keyword
-            for match in re.finditer(r'\b' + re.escape(keyword) + r'\b', content, re.IGNORECASE):
-                start = max(0, match.start() - context_words)
-                end = min(len(content), match.end() + context_words)
-                context = content[start:end].strip()
-                contexts.append({
-                    'url': row['url'],
-                    'title': row['title'],
-                    'context': f"...{context}..."
-                })
-    return contexts
+def main():
+    # Load data
+    df = load_latest_results()
+    if df is None:
+        return
+        
+    print(f"\nAnalysis of {len(df)} unique pages:")
+    
+    # Basic statistics
+    print("\n=== Basic Statistics ===")
+    print(f"Total unique pages: {len(df)}")
+    print(f"Average keywords per page: {df['keywords'].str.count(',').mean() + 1:.1f}")
+    
+    # Analyze keywords
+    keyword_counts = analyze_keywords(df)
+    
+    # Analyze patterns
+    co_occurrences = analyze_patterns(df)
+    
+    print("\nAnalysis complete! Results saved to analysis_results.txt")
+    
+    # Save detailed results to file
+    with open(os.path.join(RESULTS_DIR_ABS, 'analysis_results.txt'), 'w') as f:
+        f.write(f"Analysis Results - {datetime.now()}\n")
+        f.write("=" * 50 + "\n\n")
+        
+        f.write("=== Basic Statistics ===\n")
+        f.write(f"Total unique pages: {len(df)}\n")
+        f.write(f"Average keywords per page: {df['keywords'].str.count(',').mean() + 1:.1f}\n\n")
+        
+        f.write("=== Keyword Distribution ===\n")
+        for keyword, count in keyword_counts.items():
+            percentage = (count / len(df)) * 100
+            f.write(f"{keyword:<30}: {count:>5} occurrences ({percentage:>6.1f}%)\n")
+        
+        f.write("\n=== Keyword Co-occurrences ===\n")
+        for (kw1, kw2), count in co_occurrences.most_common(20):
+            f.write(f"{kw1:<20} + {kw2:<20}: {count:>5} pages\n")
 
 if __name__ == "__main__":
-    # Get and read the latest results file
-    results_file = get_latest_results_file()
-    print(f"Loading results from {os.path.basename(results_file)}...")
-    df = pd.read_excel(results_file)
-
-    # Overall statistics
-    total_pages = len(df['url'].unique())
-    print(f"\nAnalysis of {total_pages} unique pages:")
-    print(f"Pages with relevant keywords: {len(df)}")
-
-    # Keyword frequency analysis
-    print("\nKeyword Frequencies:")
-    keyword_stats = analyze_keywords(df)
-    print(keyword_stats.to_string(index=False))
-
-    # Detailed context for top keywords
-    print("\nTop 3 Keywords Context Examples:")
-    for keyword in keyword_stats['Keyword'][:3]:
-        print(f"\nContexts for '{keyword}':")
-        contexts = find_keyword_context(df, keyword)[:2]  # Show 2 examples per keyword
-        for ctx in contexts:
-            print(f"\nURL: {ctx['url']}")
-            print(f"Title: {ctx['title']}")
-            print(f"Context: {ctx['context']}\n")
+    main()

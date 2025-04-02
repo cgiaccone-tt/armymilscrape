@@ -1,5 +1,6 @@
 import sys
 import os
+import random
 
 # Force unbuffered output
 if sys.stdout.isatty():
@@ -60,78 +61,96 @@ class ArmyWebScraper:
 
     def _retry_operation(self, operation, *args, **kwargs):
         """Retry an operation with exponential backoff."""
-        for attempt in range(SETTINGS['RETRY_ATTEMPTS']):
+        max_retries = SETTINGS['MAX_RETRIES']
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
             try:
-                return operation(*args, **kwargs)
+                # Clear any stale error dialogs that might be present
+                try:
+                    alert = self.driver.switch_to.alert
+                    alert.dismiss()
+                except:
+                    pass
+                
+                # Switch back to default content
+                try:
+                    self.driver.switch_to.default_content()
+                except:
+                    pass
+                
+                # Execute the operation
+                result = operation(*args, **kwargs)
+                
+                # If we get here, the operation was successful
+                return result
+                
             except Exception as e:
-                if attempt == SETTINGS['RETRY_ATTEMPTS'] - 1:
-                    raise
-                wait_time = SETTINGS['RETRY_DELAY'] * (2 ** attempt)
-                print(f"Operation failed, retrying in {wait_time} seconds...")
-                time.sleep(wait_time)
+                last_error = e
+                retry_count += 1
+                
+                # Check if we need to reinitialize the driver
+                if "invalid session id" in str(e).lower():
+                    print("Session expired during retry, reinitializing Chrome WebDriver...")
+                    try:
+                        self.driver.quit()
+                    except:
+                        pass
+                    self.driver = self._initialize_driver()
+                    # Reset retry count to give the new session a fresh start
+                    retry_count = 0
+                    continue
+                
+                # Calculate delay with exponential backoff and jitter
+                delay = min(300, (2 ** retry_count) + random.uniform(0, 1))  # Cap at 5 minutes
+                if retry_count < max_retries:
+                    print(f"Operation failed, retrying in {int(delay)} seconds...")
+                    time.sleep(delay)
+                
+        # If we get here, all retries failed
+        print(f"Operation failed after {max_retries} attempts")
+        raise last_error
 
     def save_results(self, is_backup=False):
         """Save results to both CSV and Excel files with proper encoding and formatting."""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        csv_file = os.path.join(RESULTS_DIR_ABS, f'army_results_{timestamp}.csv')
-        excel_file = os.path.join(RESULTS_DIR_ABS, f'army_results_{timestamp}.xlsx')
-        
-        # Deduplicate results based on URL
-        seen_urls = set()
-        cleaned_results = []
-        for result in self.results:
-            if result['url'] not in seen_urls:
-                seen_urls.add(result['url'])
-                cleaned_result = {
-                    'url': self.clean_text_for_save(result['url']),
-                    'title': self.clean_text_for_save(result['title']),
-                    'keywords_found': self.clean_text_for_save(result['keywords_found']),
-                    'keyword_contexts': self.clean_text_for_save(result['keyword_contexts']),
-                    'last_modified': self.clean_text_for_save(result.get('last_modified', 'Not available')),
-                    'timestamp': self.clean_text_for_save(result['timestamp']),
-                    'page_content': self.clean_text_for_save(result['page_content'])
-                }
-                cleaned_results.append(cleaned_result)
-        
-        if len(cleaned_results) != len(self.results):
-            print(f"Removed {len(self.results) - len(cleaned_results)} duplicate URLs from results")
-            self.results = cleaned_results
-
         if not self.results:
             print("No results to save.")
             return
-
-        if not is_backup:
-            print(f"\nSaving results to:")
-            print(f"- CSV: {csv_file}")
-            print(f"- Excel: {excel_file}")
-
+            
+        # Create results directory if it doesn't exist
+        os.makedirs(RESULTS_DIR_ABS, exist_ok=True)
+        
+        # Generate timestamp for filenames
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        base_filename = f"army_results_{timestamp}" if is_backup else "army_results"
+        
         # Save to CSV
+        csv_path = os.path.join(RESULTS_DIR_ABS, f"{base_filename}.csv")
         try:
-            with open(csv_file, 'w', newline='', encoding='ascii') as f:
-                writer = csv.DictWriter(f, fieldnames=['url', 'title', 'keywords_found', 'keyword_contexts', 'last_modified', 'timestamp', 'page_content'])
+            with open(csv_path, 'w', newline='', encoding='ascii', errors='replace') as f:
+                writer = csv.DictWriter(f, fieldnames=['url', 'title', 'keywords', 'last_modified'])
                 writer.writeheader()
-                writer.writerows(cleaned_results)
-            if not is_backup:
-                print("[OK] CSV file saved successfully")
+                for result in self.results:
+                    writer.writerow({
+                        'url': result['url'],
+                        'title': result['title'],
+                        'keywords': ','.join(result['keywords']),
+                        'last_modified': result['last_modified']
+                    })
+            print(f"[OK] CSV file saved successfully: {csv_path}")
         except Exception as e:
             print(f"Error saving CSV file: {str(e)}")
-
+            
         # Save to Excel
+        excel_path = os.path.join(RESULTS_DIR_ABS, f"{base_filename}.xlsx")
         try:
-            df = pd.DataFrame(cleaned_results)
-            df.to_excel(excel_file, index=False, engine='openpyxl')
-            if not is_backup:
-                print("[OK] Excel file saved successfully")
+            df = pd.DataFrame(self.results)
+            df['keywords'] = df['keywords'].apply(lambda x: ','.join(x))
+            df.to_excel(excel_path, index=False)
+            print(f"[OK] Excel file saved successfully: {excel_path}")
         except Exception as e:
             print(f"Error saving Excel file: {str(e)}")
-        
-        self.last_save_time = time.time()
-        
-        if not is_backup:
-            print(f"\nSummary:")
-            print(f"Total pages processed: {len(self.visited_urls)}")
-            print(f"Relevant pages found: {len(self.results)}")
 
     def clean_text_for_save(self, text):
         """Clean text for saving to file, replacing problematic characters."""
@@ -178,6 +197,8 @@ class ArmyWebScraper:
         self.urls_to_visit = set([BASE_URL])
         self.total_pages = 0
         self.pages_with_keywords = 0
+        self.consecutive_errors = 0
+        self.last_success_time = time.time()
         
         print("\nStarting Army.mil web scraper...")
         print("Press Ctrl+C to stop and save results")
@@ -199,10 +220,59 @@ class ArmyWebScraper:
                 try:
                     self.total_pages += 1
                     print(f"\n[{self.total_pages}/{MAX_PAGES or 'inf'}] Processing: {current_url}")
-                    self._retry_operation(self.driver.get, current_url)
+                    
+                    # Check if we need to reinitialize the driver
+                    try:
+                        # Test if session is still valid
+                        self.driver.current_url
+                    except Exception as e:
+                        if "invalid session id" in str(e).lower():
+                            print("Session expired, reinitializing Chrome WebDriver...")
+                            try:
+                                self.driver.quit()
+                            except:
+                                pass
+                            self.driver = self._retry_operation(self._initialize_driver)
+                    
+                    # Check if we need to restart Chrome due to too many errors
+                    current_time = time.time()
+                    if self.consecutive_errors >= 3 or (current_time - self.last_success_time > 300):  # 5 minutes
+                        print("Too many errors or no progress, restarting Chrome...")
+                        try:
+                            self.driver.quit()
+                        except:
+                            pass
+                        self.driver = self._retry_operation(self._initialize_driver)
+                        self.consecutive_errors = 0
+                        self.last_success_time = current_time
+                    
+                    # Add delay between requests to prevent overloading
+                    time.sleep(1)
+                    
+                    # Visit the page with retry
+                    def visit_page():
+                        self.driver.get(current_url)
+                        # Wait for page load
+                        WebDriverWait(self.driver, 10).until(
+                            lambda driver: driver.execute_script('return document.readyState') == 'complete'
+                        )
+                    
+                    self._retry_operation(visit_page)
                     self.visited_urls.add(current_url)
+                    
+                    # Process the page
+                    self._process_page()
+                    
+                    # Reset error counter on success
+                    self.consecutive_errors = 0
+                    self.last_success_time = time.time()
+                    
                 except Exception as e:
                     print(f"Error visiting {current_url}: {str(e)}")
+                    self.consecutive_errors += 1
+                    # If session invalid or too many errors, add URL back to queue
+                    if "invalid session id" in str(e).lower() or self.consecutive_errors >= 3:
+                        self.urls_to_visit.add(current_url)
                     continue
                 
                 # Check if we should save progress
@@ -217,53 +287,35 @@ class ArmyWebScraper:
                     print(f"Queue size: {len(self.urls_to_visit)}")
                     print(f"Elapsed time: {elapsed//60}m {elapsed%60}s")
                     print(f"Speed: {pages_per_min:.1f} pages/min")
-                    print(f"Memory usage: {len(self.results)} results")
-                    print("=== Auto-saving... ===")
                     
+                    # Save progress
                     self.save_results(is_backup=True)
                     self.last_save_time = current_time
                 
-                # Check if we've hit the page limit
-                if MAX_PAGES and len(self.visited_urls) >= MAX_PAGES:
-                    print(f"\nReached maximum page limit ({MAX_PAGES})")
+                # Check if we've reached the maximum pages
+                if MAX_PAGES and self.total_pages >= MAX_PAGES:
+                    print(f"\nReached maximum pages limit ({MAX_PAGES})")
                     break
-                
-                # Process current page and extract new URLs
-                self._process_page()
-                
-                # Check for no progress timeout
-                if current_time - self.last_save_time >= SETTINGS['NO_PROGRESS_TIMEOUT']:
-                    print("\nNo new results found for a while, saving and exiting...")
-                    break
-                
-                # Wait between page loads
-                time.sleep(SETTINGS['PAGE_LOAD_DELAY'])
                 
         except KeyboardInterrupt:
-            print("\nScraping interrupted by user. Saving results...")
+            print("\nStopping scraper (Ctrl+C pressed)")
         except Exception as e:
-            print(f"\nError during scraping: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"\nUnexpected error: {str(e)}")
         finally:
-            # Print final statistics
-            elapsed = int(time.time() - self.start_time)
-            pages_per_min = (self.total_pages / elapsed) * 60 if elapsed > 0 else 0
-            
-            print("\n=== Final Statistics ===")
-            print(f"Total pages processed: {self.total_pages}")
-            print(f"Pages with keywords: {self.pages_with_keywords}")
-            print(f"Total time: {elapsed//60}m {elapsed%60}s")
-            print(f"Average speed: {pages_per_min:.1f} pages/min")
-            print(f"Total results: {len(self.results)}")
-            print("=====================")
-            
             # Save final results
+            print("\nSaving final results...")
             self.save_results()
             
             # Clean up
-            if hasattr(self, 'driver'):
+            try:
                 self.driver.quit()
+            except:
+                pass
+            
+            # Print summary
+            print("\nSummary:")
+            print(f"Total pages processed: {self.total_pages}")
+            print(f"Relevant pages found: {self.pages_with_keywords}")
 
     def _initialize_driver(self):
         """Initialize Chrome WebDriver with optimized settings."""
@@ -286,21 +338,17 @@ class ArmyWebScraper:
         chrome_options.add_argument('--dns-prefetch-disable')
         chrome_options.add_argument('--log-level=3')
         chrome_options.add_argument('--silent')
-        chrome_options.add_argument('--disable-browser-side-navigation')
-        chrome_options.add_argument('--disable-web-security')
-        chrome_options.add_argument('--disable-client-side-phishing-detection')
+        
+        # JavaScript and timeout settings
+        chrome_options.add_argument('--disable-javascript')  # Try without JavaScript first
         chrome_options.add_argument('--disable-popup-blocking')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         
-        # Additional performance optimizations for WSL/bash
+        # Additional performance optimizations
         chrome_options.add_argument('--disable-features=TranslateUI')
         chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
         chrome_options.add_argument('--disable-site-isolation-trials')
         chrome_options.add_argument('--disable-features=VizDisplayCompositor')
-        chrome_options.add_argument('--disable-smooth-scrolling')
-        chrome_options.add_argument('--disable-software-rasterizer')
-        chrome_options.add_argument('--ignore-certificate-errors')
-        chrome_options.add_argument('--memory-pressure-off')
         
         # Process model optimizations
         chrome_options.add_argument('--single-process')
@@ -311,12 +359,6 @@ class ArmyWebScraper:
         chrome_options.add_argument('--disk-cache-size=1')
         chrome_options.add_argument('--media-cache-size=1')
         chrome_options.add_argument('--disable-application-cache')
-        chrome_options.add_argument('--disable-offline-load-stale-cache')
-        
-        # Session handling improvements
-        chrome_options.add_argument('--disable-session-crashed-bubble')
-        chrome_options.add_argument('--disable-infobars')
-        chrome_options.add_argument('--enable-precise-memory-info')
         
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -330,7 +372,8 @@ class ArmyWebScraper:
         while retry_count < max_retries:
             try:
                 driver = webdriver.Chrome(options=chrome_options)
-                driver.set_page_load_timeout(SETTINGS['PAGE_LOAD_TIMEOUT'])
+                driver.set_page_load_timeout(10)  # Reduced timeout to fail faster
+                driver.set_script_timeout(5)  # Set script timeout
                 # Test the session
                 driver.get('about:blank')
                 return driver
@@ -348,125 +391,75 @@ class ArmyWebScraper:
         raise last_error
 
     def _process_page(self):
+        """Process the current page and extract relevant information."""
         try:
-            # Get the page source
-            page_source = self.driver.page_source
-            soup = BeautifulSoup(page_source, 'html.parser')
+            # Wait for dynamic content to load with a shorter timeout
+            time.sleep(0.5)  # Brief pause
             
-            # Extract new URLs before processing content
-            new_urls = len(self.urls_to_visit)
-            self.extract_and_queue_urls(soup, self.driver.current_url)
-            added_urls = len(self.urls_to_visit) - new_urls
-            if added_urls > 0:
-                print(f"Found {added_urls} new URLs to crawl")
-            
-            # Get last modified date
-            last_modified = self.get_last_modified_date(soup)
-            
-            # Extract content
-            content = soup.find('main') or soup.find('article') or soup.find('body')
-            if content:
-                text_content = content.get_text(strip=True)
-                found_keywords, keyword_contexts = self.find_keywords_in_text(text_content)
-                
-                if found_keywords:
-                    self.pages_with_keywords += 1
-                    title = soup.find('title')
-                    title_text = title.get_text() if title else "No title"
-                    clean_content = self.clean_text(text_content)
+            # Get page content with retry and timeout
+            def get_page_content():
+                try:
+                    # First try without JavaScript
+                    content = self.driver.page_source
+                    if not content or len(content) < 100:  # If content is too small
+                        # Re-enable JavaScript and try again
+                        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+                        self.driver.execute_script("return document.readyState")
+                        content = self.driver.page_source
                     
-                    self.results.append({
+                    # Basic check for valid content
+                    if not content or len(content) < 100:
+                        raise Exception("Invalid or empty page content")
+                        
+                    return {
                         'url': self.driver.current_url,
-                        'title': title_text,
-                        'keywords_found': ','.join(found_keywords),
-                        'keyword_contexts': json.dumps(keyword_contexts),
-                        'last_modified': last_modified,
-                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'page_content': clean_content
-                    })
-                    print(f"[+] Found keywords: {', '.join(found_keywords)}")
-                    self.last_save_time = time.time()  # Reset timeout on finding keywords
+                        'title': self.driver.title or "No title",
+                        'content': content
+                    }
+                except Exception as e:
+                    print(f"Error getting page content: {str(e)}")
+                    raise
+            
+            page_data = self._retry_operation(get_page_content)
+            
+            # Extract and process links
+            soup = BeautifulSoup(page_data['content'], 'html.parser')
+            self._extract_links(soup)
+            
+            # Check for keywords
+            found_keywords = self._find_keywords(soup)
+            if found_keywords:
+                self.pages_with_keywords += 1
+                print(f"[+] Found keywords: {', '.join(found_keywords)}")
+                
+                # Save the result
+                result = {
+                    'url': page_data['url'],
+                    'title': page_data['title'],
+                    'keywords': found_keywords,
+                    'last_modified': self._get_last_modified_date(soup)
+                }
+                self.results.append(result)
+            
         except Exception as e:
-            print(f"Error processing page {self.driver.current_url}: {str(e)}")
+            print(f"Error processing page: {str(e)}")
+            raise  # Re-raise to trigger retry mechanism
 
-    def find_keywords_in_text(self, text, context_chars=100):
-        """Find keywords in text and capture surrounding context."""
+    def _find_keywords(self, soup):
+        """Find keywords in the page content."""
         found_keywords = set()
-        keyword_contexts = []
         
         # Convert text to lowercase for case-insensitive matching
-        text_lower = text.lower()
+        text_lower = soup.get_text().lower()
         
         for keyword in KEYWORDS:
             if keyword.lower() in text_lower:
                 found_keywords.add(keyword)
-                
-                # Find all occurrences of the keyword
-                start_pos = 0
-                while True:
-                    pos = text_lower.find(keyword.lower(), start_pos)
-                    if pos == -1:
-                        break
-                        
-                    # Get context around keyword
-                    context_start = max(0, pos - context_chars)
-                    context_end = min(len(text), pos + len(keyword) + context_chars)
-                    context = text[context_start:context_end]
-                    
-                    # Add ellipsis if context is truncated
-                    if context_start > 0:
-                        context = "..." + context
-                    if context_end < len(text):
-                        context = context + "..."
-                    
-                    keyword_contexts.append({
-                        'keyword': keyword,
-                        'context': context.strip()
-                    })
-                    
-                    start_pos = pos + 1
         
-        return found_keywords, keyword_contexts
+        return found_keywords
 
-    def clean_text(self, text):
-        return ' '.join(text.split())
-
-    def is_valid_url(self, url):
-        """Check if URL is valid and should be processed."""
-        if not url:
-            return False
-            
-        # Parse the URL
-        parsed = urlparse(url)
-        
-        # Check domain - strict match for www.army.mil
-        if parsed.netloc != 'www.army.mil':
-            return False
-            
-        # Skip excluded paths
-        if any(path in parsed.path.lower() for path in EXCLUDED_PATHS):
-            return False
-            
-        # Skip excluded file types
-        if any(parsed.path.lower().endswith(ext) for ext in EXCLUDED_FILE_TYPES):
-            return False
-            
-        # Skip utility pages
-        excluded_patterns = [
-            '/search/', 
-            '/login/', 
-            '/rss/', 
-            '/feeds/',
-            '/contact/',
-            '/sitemap/',
-            '/privacy/',
-            '/terms/',
-            '/help/',
-            '/faq/'
-        ]
-        return not any(pattern in parsed.path.lower() for pattern in excluded_patterns)
-
-    def get_last_modified_date(self, soup):
+    def _get_last_modified_date(self, soup):
+        """Get the last modified date from the page."""
         last_modified = None
         
         # Try to get from meta tags
@@ -519,28 +512,53 @@ class ArmyWebScraper:
         
         return "Not available"
 
-    def extract_and_queue_urls(self, soup, base_url):
+    def _extract_links(self, soup):
+        """Extract links from the page."""
         elements = soup.find_all('a', href=True)
         for element in elements:
             try:
                 href = element.get('href')
                 if href:
-                    full_url = urljoin(base_url, href)
+                    full_url = urljoin(self.driver.current_url, href)
                     if self.is_valid_url(full_url) and full_url not in self.visited_urls:
                         self.urls_to_visit.add(full_url)
             except:
                 continue
 
-    def clean_text_for_csv(self, text):
-        if pd.isna(text):
-            return ""
-        # Remove problematic characters and normalize newlines
-        text = str(text).replace('\r\n', ' ').replace('\n', ' ')
-        # Remove any double quotes that might interfere with CSV formatting
-        text = text.replace('"', "'")
-        # Remove null bytes and other problematic characters
-        text = ''.join(char for char in text if ord(char) >= 32)
-        return text.strip()
+    def is_valid_url(self, url):
+        """Check if URL is valid and should be processed."""
+        if not url:
+            return False
+            
+        # Parse the URL
+        parsed = urlparse(url)
+        
+        # Check domain - strict match for www.army.mil
+        if parsed.netloc != 'www.army.mil':
+            return False
+            
+        # Skip excluded paths
+        if any(path in parsed.path.lower() for path in EXCLUDED_PATHS):
+            return False
+            
+        # Skip excluded file types
+        if any(parsed.path.lower().endswith(ext) for ext in EXCLUDED_FILE_TYPES):
+            return False
+            
+        # Skip utility pages
+        excluded_patterns = [
+            '/search/', 
+            '/login/', 
+            '/rss/', 
+            '/feeds/',
+            '/contact/',
+            '/sitemap/',
+            '/privacy/',
+            '/terms/',
+            '/help/',
+            '/faq/'
+        ]
+        return not any(pattern in parsed.path.lower() for pattern in excluded_patterns)
 
 if __name__ == "__main__":
     print("Starting Army.mil web scraper...")
